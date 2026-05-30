@@ -34,6 +34,8 @@ let lastWeeklySummaryDate = null;
 const TOKENS_DIR = path.join(__dirname, 'garmin_tokens');
 
 async function loginGarmin() {
+    console.log(`🔍 DEBUG: OAUTH1 Provided? ${!!process.env.GARMIN_OAUTH1_TOKEN} | OAUTH2 Provided? ${!!process.env.GARMIN_OAUTH2_TOKEN}`);
+
     // Inject token from GitHub Actions environment if provided
     if (process.env.GARMIN_OAUTH2_TOKEN || process.env.GARMIN_OAUTH1_TOKEN) {
         if (!fs.existsSync(TOKENS_DIR)) fs.mkdirSync(TOKENS_DIR, { recursive: true });
