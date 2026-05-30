@@ -1,0 +1,33 @@
+name: Garmin AI Coach Sync Pipeline
+
+on:
+  schedule:
+    # Trigger automatically every 15 minutes. We choose a weird minute boundary (:13, :28, etc.) 
+    # to avoid GitHub's server bottleneck congestion at the top of the hour!
+    - cron: '13,28,43,58 * * * *'
+  workflow_dispatch: # This adds a manual "Run now" button in your dashboard so you can test it anytime!
+
+jobs:
+  run-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js Environment Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Fetch and Install Node Modules
+        run: npm install
+
+      - name: Run AI Analysis Sync Logic
+        run: node index.js
+        env:
+          GARMIN_EMAIL: ${{ secrets.GARMIN_EMAIL }}
+          GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
