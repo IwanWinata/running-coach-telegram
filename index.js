@@ -1,9 +1,14 @@
 // Load environment variables immediately on startup
 require('dotenv').config({ path: 'index.env' });
 
+const fs = require('fs');
+const path = require('path');
 const { GarminConnect } = require('@gooin/garmin-connect');
 const { GoogleGenAI } = require('@google/genai');
 const TelegramBot = require('node-telegram-bot-api');
+
+// File path to cache your Garmin handshake token locally
+const SESSION_FILE = path.join(__dirname, 'garmin_session.json');
 
 // Enforce that vital configuration variables exist
 const requiredEnv = ['GARMIN_EMAIL', 'GARMIN_PASSWORD', 'TELEGRAM_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY'];
@@ -24,12 +29,55 @@ const aiClient = new GoogleGenAI({});
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN);
 
 let lastActivityId = null;
-let lastWeeklySummaryDate = null; // Mencegah rangkuman mingguan terkirim ganda
+let lastWeeklySummaryDate = null; 
+
+const TOKENS_DIR = path.join(__dirname, 'garmin_tokens');
+
+async function loginGarmin() {
+    // Inject token from GitHub Actions environment if provided
+    if (process.env.GARMIN_OAUTH_TOKEN) {
+        if (!fs.existsSync(TOKENS_DIR)) fs.mkdirSync(TOKENS_DIR, { recursive: true });
+
+        const token1Path = path.join(TOKENS_DIR, 'oauth1_token.json');
+        if (!fs.existsSync(token1Path)) {
+            fs.writeFileSync(token1Path, process.env.GARMIN_OAUTH1_TOKEN);
+            console.log("🔑 Injected OAuth1 session token from GARMIN_OAUTH1_TOKEN.");
+        }
+
+        const token2Path = path.join(TOKENS_DIR, 'oauth2_token.json');
+        if (!fs.existsSync(token2Path)) {
+            fs.writeFileSync(token2Path, process.env.GARMIN_OAUTH2_TOKEN);
+            console.log("🔑 Injected OAuth2 session token from GARMIN_OAUTH2_TOKEN.");
+        }
+    }
+
+    // Check if the directory has tokens from a previous successful handshake
+    const hasTokens = fs.existsSync(TOKENS_DIR) && fs.readdirSync(TOKENS_DIR).length > 0;
+
+    if (hasTokens) {
+        console.log("💾 Found local session tokens. Restoring secure connection...");
+        try {
+            // Native library function to instantly reload old session tokens
+            await gcClient.loadTokenByFile(TOKENS_DIR);
+            console.log("✓ Session token restored natively from disk.");
+            return;
+        } catch (e) {
+            console.log("⚠️ Stored token was rejected by server. Attempting a fresh login...", e.message);
+        }
+    }
+
+    console.log("🌐 Session tokens missing. Performing a clean login sequence...");
+    await gcClient.login();
+    
+    // Native library function to dump the active credentials cleanly to your folder
+    await gcClient.exportTokenToFile(TOKENS_DIR);
+    console.log("✓ Live connection tokens written safely to /garmin_tokens folder.");
+}
 
 async function init() {
     console.log("🤖 Connecting to Garmin Connect endpoint...");
     try {
-        await gcClient.login();
+        await loginGarmin();
         console.log("✓ Live connection established.");
         
         // Fetch the most recent item to set our baseline tracker
@@ -52,28 +100,18 @@ function formatMinutes(seconds) {
     const hrs = Math.floor(totalMins / 60);
     const mins = totalMins % 60;
 
-    // Jika di bawah 1 jam, tampilkan menitnya saja (misal: 45m)
-    if (hrs === 0) {
-        return `${mins}m`;
-    }
-    
-    // Jika pas sejam atau lebih, dan ada sisa menit (misal: 1h 30m)
-    if (mins > 0) {
-        return `${hrs}h ${mins}m`;
-    }
-    
-    // Jika pas jam genap tanpa sisa menit (misal: 7h)
+    if (hrs === 0) return `${mins}m`;
+    if (mins > 0) return `${hrs}h ${mins}m`;
     return `${hrs}h`;
 }
 
 // Helper untuk mengambil data kesehatan harian (Sleep, RHR, HRV)
 async function fetchDailyHealth(dateObj) {
-    const dateStr = dateObj.toISOString().split('T')[0]; // Format YYYY-MM-DD
+    const dateStr = dateObj.toISOString().split('T')[0]; 
     try {
         const sleepData = await gcClient.getSleepData(dateStr);
         const heartRateData = await gcClient.getHeartRate(dateStr);
         
-        // Ekstrak data tidur jika ada
         const sleepDTO = sleepData?.dailySleepDTO || {};
         const sleepSummary = {
             score: sleepDTO.sleepScore || "N/A",
@@ -83,9 +121,8 @@ async function fetchDailyHealth(dateObj) {
             awake: formatMinutes(sleepDTO.awakeSleepSeconds)
         };
 
-        // Ekstrak Resting Heart Rate (RHR) & HRV jika didukung device
         const rhr = heartRateData?.restingHeartRate || "N/A";
-        const hrvOvernight = sleepData?.hrvOvernightStatus?.weeklyAverage || "N/A"; // Atau sesuaikan dengan payload garmin terupdate
+        const hrvOvernight = sleepData?.hrvOvernightStatus?.weeklyAverage || "N/A"; 
 
         return { sleepSummary, rhr, hrvOvernight, dateStr };
     } catch (err) {
@@ -112,7 +149,6 @@ async function checkNewWorkouts() {
             console.log(`⚡ Fresh workout tracked! ID: ${currentId}. Gathering health metrics...`);
             lastActivityId = currentId;
 
-            // Ambil data kesehatan hari ini untuk korelasi recovery
             const todayHealth = await fetchDailyHealth(new Date());
 
             const summaryData = {
@@ -123,7 +159,6 @@ async function checkNewWorkouts() {
                 avgHR: latestWorkout.averageHR,
                 maxHR: latestWorkout.maxHR,
                 calories: latestWorkout.calories,
-                // running dynamics baru
                 cadence: latestWorkout.averageRunningCadence || "N/A",
                 strideLength: latestWorkout.strideLength ? (latestWorkout.strideLength / 100).toFixed(2) + "m" : "N/A",
                 paceMinPerKm: latestWorkout.averagePace ? (latestWorkout.averagePace * 16.6667).toFixed(2) : "N/A",
@@ -141,7 +176,7 @@ async function checkNewWorkouts() {
                 3. Recovery Correlation: How today's Sleep Score, Deep/REM sleep breakdown, RHR, and Overnight HRV might have impacted this run.
                 4. Next Session Goals: Give me 2-3 specific targets for Tuesday/Thursday/Saturday.
                 
-                Keep the tone motivating, professional, and layout highly scannable using clear emojis. Reply dengan bahasa Indonesia.
+                Keep the tone motivating, professional, and layout highly scannable using clear emojis. Reply dengan bahasa Indonesia. Use standard text formatting.
             `;
 
             const aiResponse = await aiClient.models.generateContent({
@@ -149,13 +184,17 @@ async function checkNewWorkouts() {
                 contents: prompt,
             });
 
-            const finalMessage = `👟 *NEW RUN TRACKED BY AI COACH* 👟\n\n${aiResponse.text}`;
+            const safeText = aiResponse.text.replace(/[_*`\[\]]/g, ''); 
+            const finalMessage = `⚠️ *NEW RUN TRACKED BY AI COACH* ⚠️\n\n${safeText}`;
+            
             await bot.sendMessage(process.env.TELEGRAM_CHAT_ID, finalMessage, { parse_mode: 'Markdown' });
             console.log("📩 Post-workout breakdown dispatched over Telegram!");
         }
     } catch (error) {
         console.log("⚠️ Core loop session warning:", error.message);
-        try { await gcClient.login(); } catch (e) {}
+        // If the session died, wipe the file and re-login clean
+        if (fs.existsSync(SESSION_FILE)) fs.unlinkSync(SESSION_FILE);
+        try { await loginGarmin(); } catch (e) { console.error("Re-login failed:", e.message); }
     }
 }
 
@@ -163,18 +202,16 @@ async function checkNewWorkouts() {
 async function generateWeeklySummary() {
     console.log("📊 Generating 7-Day Weekly Training & Health Summary...");
     try {
-        // 1. Ambil aktivitas seminggu terakhir (Ambil 10 item jaga-jaga kalau ada aktivitas non-lari)
         const activities = await gcClient.getActivities(0, 10);
         const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1); // Hari Minggu kemarin
+        yesterday.setDate(yesterday.getDate() - 1); 
 
         const oneWeekAgo = new Date();
-        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7); // Hari Senin minggu lalu
+        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7); 
 
         const weeklyRuns = activities.filter(act => {
             const actDate = new Date(act.startTimeLocal);
             const isRunning = act.activityType?.typeKey === 'running';
-            // Hanya ambil jika aktivitas terjadi di antara Senin minggu lalu dan Minggu kemarin
             return actDate >= oneWeekAgo && actDate <= yesterday && isRunning;
         }).map(run => ({
             date: run.startTimeLocal.split(' ')[0],
@@ -185,11 +222,10 @@ async function generateWeeklySummary() {
             cadence: run.averageRunningCadence || "N/A"
         }));
 
-        // 2. Ambil data kesehatan harian selama 7 hari ke belakang
         const healthHistory = [];
         for (let i = 0; i < 7; i++) {
             const targetDate = new Date();
-            targetDate.setDate(targetDate.getDate() - (i + 1)); // Diubah menjadi - (i + 1)
+            targetDate.setDate(targetDate.getDate() - (i + 1)); 
             const health = await fetchDailyHealth(targetDate);
             healthHistory.push(health);
         }
@@ -205,12 +241,12 @@ async function generateWeeklySummary() {
             ${JSON.stringify(weeklyPayload, null, 2)}
 
             Provide a comprehensive "Weekly Performance Review":
-            1. Training Load: Evaluate the 3 weekly runs (typically Tuesday, Thursday, Saturday). Analyze volume, total distance, pacing consistency, and progression.
-            2. 7-Day Health Trends: Analyze the weekly trends of Resting Heart Rate (RHR), Overnight HRV, and Sleep Score (specifically evaluating Deep vs REM sleep quality over the week).
+            1. Training Load: Evaluate the 3 weekly runs. Analyze volume, total distance, pacing consistency, and progression.
+            2. 7-Day Health Trends: Analyze the weekly trends of Resting Heart Rate (RHR), Overnight HRV, and Sleep Score.
             3. Training Adaptation: Are the health metrics improving, stable, or showing signs of overtraining/fatigue?
             4. Strategy for Next Week: Adjustments needed for recovery or intensity.
 
-            Format this beautifully with a clear structure, headers, and bold keywords so it's clean on Telegram. Reply dengan bahasa Indonesia.
+            Format this beautifully with clear headers. Reply dengan bahasa Indonesia. Use standard plain text blocks.
         `;
 
         const aiResponse = await aiClient.models.generateContent({
@@ -218,7 +254,8 @@ async function generateWeeklySummary() {
             contents: prompt,
         });
 
-        const finalMessage = `📊 *WEEKLY AI COACH SUMMARY (7D)* 📊\n\n${aiResponse.text}`;
+        const safeWeeklyText = aiResponse.text.replace(/[_*`\[\]]/g, ''); 
+        const finalMessage = `📊 *WEEKLY AI COACH SUMMARY (7D)* 📊\n\n${safeWeeklyText}`;
         await bot.sendMessage(process.env.TELEGRAM_CHAT_ID, finalMessage, { parse_mode: 'Markdown' });
         console.log("📈 Weekly summary successfully sent over Telegram!");
 
@@ -244,7 +281,18 @@ function checkScheduler() {
 // Run engine
 init().then(() => {
     setInterval(() => {
-        checkNewWorkouts(); // Tetap cek run baru tiap 5 menit
-        checkScheduler();   // Cek apakah sudah waktunya rilis summary mingguan
-    }, 300000); // 300000 ms = 5 menit
+        checkNewWorkouts(); 
+        checkScheduler();   
+    }, 300000); 
+});
+
+// Create a dummy HTTP server for Render.com Web Service compatibility
+const http = require('http');
+const port = process.env.PORT || 3000;
+http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.write('Garmin AI Coach is running!');
+    res.end();
+}).listen(port, () => {
+    console.log(`🌐 Dummy HTTP server listening on port ${port} for cloud deployment health checks.`);
 });

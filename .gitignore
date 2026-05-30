@@ -2,3 +2,5 @@ node_modules
 index.env
 .env
 *.env
+garmin_tokens/
+garmin_session.json
