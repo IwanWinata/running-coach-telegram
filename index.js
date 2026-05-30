@@ -35,17 +35,17 @@ const TOKENS_DIR = path.join(__dirname, 'garmin_tokens');
 
 async function loginGarmin() {
     // Inject token from GitHub Actions environment if provided
-    if (process.env.GARMIN_OAUTH_TOKEN) {
+    if (process.env.GARMIN_OAUTH2_TOKEN || process.env.GARMIN_OAUTH1_TOKEN) {
         if (!fs.existsSync(TOKENS_DIR)) fs.mkdirSync(TOKENS_DIR, { recursive: true });
 
         const token1Path = path.join(TOKENS_DIR, 'oauth1_token.json');
-        if (!fs.existsSync(token1Path)) {
+        if (process.env.GARMIN_OAUTH1_TOKEN && !fs.existsSync(token1Path)) {
             fs.writeFileSync(token1Path, process.env.GARMIN_OAUTH1_TOKEN);
             console.log("🔑 Injected OAuth1 session token from GARMIN_OAUTH1_TOKEN.");
         }
 
         const token2Path = path.join(TOKENS_DIR, 'oauth2_token.json');
-        if (!fs.existsSync(token2Path)) {
+        if (process.env.GARMIN_OAUTH2_TOKEN && !fs.existsSync(token2Path)) {
             fs.writeFileSync(token2Path, process.env.GARMIN_OAUTH2_TOKEN);
             console.log("🔑 Injected OAuth2 session token from GARMIN_OAUTH2_TOKEN.");
         }
