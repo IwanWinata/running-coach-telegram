@@ -281,7 +281,19 @@ function checkScheduler() {
 }
 
 // Run engine
-init().then(() => {
+init().then(async () => {
+    // Always do an initial immediate check on startup
+    await checkNewWorkouts(); 
+    checkScheduler();
+
+    // If running inside GitHub Actions, we MUST exit gracefully so the runner finishes.
+    if (process.env.GITHUB_ACTIONS === 'true') {
+        console.log("🏁 GitHub Actions runner detected. Shutting down gracefully to save CI minutes...");
+        process.exit(0);
+    }
+
+    // Otherwise (like on Render.com or Local PC), keep the script alive forever!
+    console.log("⏳ Local/Server mode detected. Entering continuous 5-minute polling loop...");
     setInterval(() => {
         checkNewWorkouts(); 
         checkScheduler();   
