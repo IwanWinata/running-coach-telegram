@@ -7,10 +7,6 @@ const { GarminConnect } = require('@gooin/garmin-connect');
 const { GoogleGenAI } = require('@google/genai');
 const TelegramBot = require('node-telegram-bot-api');
 
-// File path to cache your Garmin handshake token locally
-const SESSION_FILE = path.join(__dirname, 'garmin_session.json');
-
-// Enforce that vital configuration variables exist
 const requiredEnv = ['GARMIN_EMAIL', 'GARMIN_PASSWORD', 'TELEGRAM_TOKEN', 'TELEGRAM_CHAT_ID', 'GEMINI_API_KEY'];
 for (const key of requiredEnv) {
     if (!process.env[key]) {
@@ -19,7 +15,6 @@ for (const key of requiredEnv) {
     }
 }
 
-// Initialize Clients
 const gcClient = new GarminConnect({ 
     username: process.env.GARMIN_EMAIL, 
     password: process.env.GARMIN_PASSWORD 
@@ -31,9 +26,24 @@ const bot = new TelegramBot(process.env.TELEGRAM_TOKEN);
 let lastActivityId = null;
 let lastWeeklySummaryDate = null; 
 
-// --- STATE MANAGEMENT ---
+const SESSION_FILE = path.join(__dirname, 'garmin_session.json');
+const TOKENS_DIR = path.join(__dirname, 'garmin_tokens');
 const STATE_FILE = path.join(__dirname, 'state.json');
 
+// --- Helper Functions ---
+function formatMinutes(seconds) {
+    if (!seconds) return "0m";
+    
+    const totalMins = Math.floor(seconds / 60);
+    const hrs = Math.floor(totalMins / 60);
+    const mins = totalMins % 60;
+
+    if (hrs === 0) return `${mins}m`;
+    if (mins > 0) return `${hrs}h ${mins}m`;
+    return `${hrs}h`;
+}
+
+// --- State Management ---
 function loadState() {
     if (fs.existsSync(STATE_FILE)) {
         try {
@@ -50,14 +60,11 @@ function loadState() {
 function saveState() {
     fs.writeFileSync(STATE_FILE, JSON.stringify({ lastActivityId, lastWeeklySummaryDate }));
 }
-// ------------------------
 
-const TOKENS_DIR = path.join(__dirname, 'garmin_tokens');
-
+// --- Token Auth Logic ---
 async function loginGarmin() {
     console.log(`🔍 DEBUG: OAUTH1 Provided? ${!!process.env.GARMIN_OAUTH1_TOKEN} | OAUTH2 Provided? ${!!process.env.GARMIN_OAUTH2_TOKEN}`);
 
-    // Inject token from GitHub Actions environment if provided
     if (process.env.GARMIN_OAUTH2_TOKEN || process.env.GARMIN_OAUTH1_TOKEN) {
         if (!fs.existsSync(TOKENS_DIR)) fs.mkdirSync(TOKENS_DIR, { recursive: true });
 
@@ -74,13 +81,11 @@ async function loginGarmin() {
         }
     }
 
-    // Check if the directory has tokens from a previous successful handshake
     const hasTokens = fs.existsSync(TOKENS_DIR) && fs.readdirSync(TOKENS_DIR).length > 0;
 
     if (hasTokens) {
         console.log("💾 Found local session tokens. Restoring secure connection...");
         try {
-            // Native library function to instantly reload old session tokens
             await gcClient.loadTokenByFile(TOKENS_DIR);
             console.log("✓ Session token restored natively from disk.");
             return;
@@ -92,50 +97,10 @@ async function loginGarmin() {
     console.log("🌐 Session tokens missing. Performing a clean login sequence...");
     await gcClient.login();
     
-    // Native library function to dump the active credentials cleanly to your folder
     await gcClient.exportTokenToFile(TOKENS_DIR);
     console.log("✓ Live connection tokens written safely to /garmin_tokens folder.");
 }
 
-async function init() {
-    console.log("🤖 Connecting to Garmin Connect endpoint...");
-    try {
-        await loginGarmin();
-        console.log("✓ Live connection established.");
-        
-        // Load any previously saved state so we don't skip workouts on GitHub Actions restarts
-        loadState();
-        
-        // Fetch the most recent item to set our baseline tracker
-        const recent = await gcClient.getActivities(0, 1);
-        if (recent && recent.length > 0) {
-            // Only set baseline if we don't already have one from our saved state
-            if (!lastActivityId) {
-                lastActivityId = recent[0].activityId;
-                saveState();
-            }
-            console.log(`⏱ System active. Monitoring your watch for activities newer than ID: ${lastActivityId}`);
-        }
-    } catch (err) {
-        console.error("❌ Garmin configuration authentication failed:", err.message);
-        process.exit(1);
-    }
-}
-
-// Helper untuk format detik ke format Jam & Menit
-function formatMinutes(seconds) {
-    if (!seconds) return "0m";
-    
-    const totalMins = Math.floor(seconds / 60);
-    const hrs = Math.floor(totalMins / 60);
-    const mins = totalMins % 60;
-
-    if (hrs === 0) return `${mins}m`;
-    if (mins > 0) return `${hrs}h ${mins}m`;
-    return `${hrs}h`;
-}
-
-// Helper untuk mengambil data kesehatan harian (Sleep, RHR, HRV)
 async function fetchDailyHealth(dateObj) {
     const dateStr = dateObj.toISOString().split('T')[0]; 
     try {
@@ -166,7 +131,6 @@ async function fetchDailyHealth(dateObj) {
     }
 }
 
-// KASUS 1: Cek aktivitas lari terbaru (Setiap 5 menit)
 async function checkNewWorkouts() {
     try {
         const activities = await gcClient.getActivities(0, 1);
@@ -178,7 +142,7 @@ async function checkNewWorkouts() {
         if (currentId !== lastActivityId) {
             console.log(`⚡ Fresh workout tracked! ID: ${currentId}. Gathering health metrics...`);
             lastActivityId = currentId;
-            saveState(); // Persist the new ID immediately
+            saveState();
 
             const todayHealth = await fetchDailyHealth(new Date());
 
@@ -223,13 +187,11 @@ async function checkNewWorkouts() {
         }
     } catch (error) {
         console.log("⚠️ Core loop session warning:", error.message);
-        // If the session died, wipe the file and re-login clean
         if (fs.existsSync(SESSION_FILE)) fs.unlinkSync(SESSION_FILE);
         try { await loginGarmin(); } catch (e) { console.error("Re-login failed:", e.message); }
     }
 }
 
-// KASUS 2: Rangkuman Lari & Kesehatan Mingguan (7d Summary)
 async function generateWeeklySummary() {
     console.log("📊 Generating 7-Day Weekly Training & Health Summary...");
     try {
@@ -295,34 +257,54 @@ async function generateWeeklySummary() {
     }
 }
 
-// Scheduler checker run inside the interval loop
+// --- Scheduler Checker Run Inside The Interval Loop ---
 function checkScheduler() {
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
 
-    // Syarat: Hari Senin (1), jam 9 pagi (9), menit antara 00-09, dan belum dikirim hari ini
-    if (now.getDay() === 1 && now.getHours() === 9 && now.getMinutes() < 10) {
+    // Syarat: Hari Senin (1), jam 9 pagi (atau lebih), dan belum dikirim hari ini
+    if (now.getDay() === 1 && now.getHours() >= 9) {
         if (lastWeeklySummaryDate !== todayStr) {
             lastWeeklySummaryDate = todayStr;
-            saveState(); // Persist the new summary date immediately
+            saveState();
             generateWeeklySummary();
         }
     }
 }
 
+// --- Initialize Global Variables ---
+async function init() {
+    console.log("🤖 Connecting to Garmin Connect endpoint...");
+    try {
+        await loginGarmin();
+        console.log("✓ Live connection established.");
+        
+        loadState();
+        
+        const recent = await gcClient.getActivities(0, 1);
+        if (recent && recent.length > 0) {
+            if (!lastActivityId) {
+                lastActivityId = recent[0].activityId;
+                saveState();
+            }
+            console.log(`⏱ System active. Monitoring your watch for activities newer than ID: ${lastActivityId}`);
+        }
+    } catch (err) {
+        console.error("❌ Garmin configuration authentication failed:", err.message);
+        process.exit(1);
+    }
+}
+
 // Run engine
 init().then(async () => {
-    // Always do an initial immediate check on startup
     await checkNewWorkouts(); 
     checkScheduler();
 
-    // If running inside GitHub Actions, we MUST exit gracefully so the runner finishes.
     if (process.env.GITHUB_ACTIONS === 'true') {
         console.log("🏁 GitHub Actions runner detected. Shutting down gracefully to save CI minutes...");
         process.exit(0);
     }
 
-    // Otherwise (like on Render.com or Local PC), keep the script alive forever!
     console.log("⏳ Local/Server mode detected. Entering continuous 5-minute polling loop...");
     setInterval(() => {
         checkNewWorkouts(); 
