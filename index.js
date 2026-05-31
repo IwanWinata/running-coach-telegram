@@ -104,8 +104,8 @@ async function loginGarmin() {
 async function fetchDailyHealth(dateObj) {
     const dateStr = dateObj.toISOString().split('T')[0]; 
     try {
-        const sleepData = await gcClient.getSleepData(dateStr);
-        const heartRateData = await gcClient.getHeartRate(dateStr);
+        const sleepData = await gcClient.getSleepData(dateObj);
+        const heartRateData = await gcClient.getHeartRate(dateObj);
         
         const sleepDTO = sleepData?.dailySleepDTO || {};
         const sleepSummary = {
@@ -171,7 +171,9 @@ async function checkNewWorkouts() {
                 3. Recovery Correlation: How today's Sleep Score, Deep/REM sleep breakdown, RHR, and Overnight HRV might have impacted this run.
                 4. Next Session Goals: Give me 2-3 specific targets for Tuesday/Thursday/Saturday.
                 
-                Keep the tone motivating, professional, and layout highly scannable using clear emojis. Reply dengan bahasa Indonesia. Use standard text formatting.
+                Keep the tone motivating, professional, and layout highly scannable using clear emojis. Use standard text formatting.
+                
+                CRITICAL: Keep your entire response under 3000 characters. Do not write extremely long paragraphs; focus on high-impact, scannable bullet points.
             `;
 
             const aiResponse = await aiClient.models.generateContent({
@@ -179,7 +181,7 @@ async function checkNewWorkouts() {
                 contents: prompt,
             });
 
-            const safeText = aiResponse.text.replace(/[_*`\[\]]/g, ''); 
+            const safeText = aiResponse.text.replace(/[_*`\[\]]/g, '').substring(0, 3900); 
             const finalMessage = `⚠️ *NEW RUN TRACKED BY AI COACH* ⚠️\n\n${safeText}`;
             
             await bot.sendMessage(process.env.TELEGRAM_CHAT_ID, finalMessage, { parse_mode: 'Markdown' });
@@ -239,15 +241,17 @@ async function generateWeeklySummary() {
             3. Training Adaptation: Are the health metrics improving, stable, or showing signs of overtraining/fatigue?
             4. Strategy for Next Week: Adjustments needed for recovery or intensity.
 
-            Format this beautifully with clear headers. Reply dengan bahasa Indonesia. Use standard plain text blocks.
+            Format this beautifully with clear headers. Use standard plain text blocks.
+            
+            CRITICAL: Keep your entire response under 3000 characters. Do not write extremely long paragraphs; focus on high-impact, scannable bullet points.
         `;
 
         const aiResponse = await aiClient.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: 'gemini-2.5-pro',
             contents: prompt,
         });
 
-        const safeWeeklyText = aiResponse.text.replace(/[_*`\[\]]/g, ''); 
+        const safeWeeklyText = aiResponse.text.replace(/[_*`\[\]]/g, '').substring(0, 3900); 
         const finalMessage = `📊 *WEEKLY AI COACH SUMMARY (7D)* 📊\n\n${safeWeeklyText}`;
         await bot.sendMessage(process.env.TELEGRAM_CHAT_ID, finalMessage, { parse_mode: 'Markdown' });
         console.log("📈 Weekly summary successfully sent over Telegram!");
@@ -258,7 +262,7 @@ async function generateWeeklySummary() {
 }
 
 // --- Scheduler Checker Run Inside The Interval Loop ---
-function checkScheduler() {
+async function checkScheduler() {
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
 
@@ -267,7 +271,7 @@ function checkScheduler() {
         if (lastWeeklySummaryDate !== todayStr) {
             lastWeeklySummaryDate = todayStr;
             saveState();
-            generateWeeklySummary();
+            await generateWeeklySummary();
         }
     }
 }
@@ -282,6 +286,7 @@ async function init() {
         loadState();
         
         const recent = await gcClient.getActivities(0, 1);
+        console.log(recent);
         if (recent && recent.length > 0) {
             if (!lastActivityId) {
                 lastActivityId = recent[0].activityId;
@@ -298,7 +303,7 @@ async function init() {
 // Run engine
 init().then(async () => {
     await checkNewWorkouts(); 
-    checkScheduler();
+    await checkScheduler();
 
     if (process.env.GITHUB_ACTIONS === 'true') {
         console.log("🏁 GitHub Actions runner detected. Shutting down gracefully to save CI minutes...");
