@@ -31,6 +31,27 @@ const bot = new TelegramBot(process.env.TELEGRAM_TOKEN);
 let lastActivityId = null;
 let lastWeeklySummaryDate = null; 
 
+// --- STATE MANAGEMENT ---
+const STATE_FILE = path.join(__dirname, 'state.json');
+
+function loadState() {
+    if (fs.existsSync(STATE_FILE)) {
+        try {
+            const data = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+            if (data.lastActivityId) lastActivityId = data.lastActivityId;
+            if (data.lastWeeklySummaryDate) lastWeeklySummaryDate = data.lastWeeklySummaryDate;
+            console.log("📦 Persistent state loaded from state.json");
+        } catch (e) {
+            console.log("⚠️ Could not parse state.json", e.message);
+        }
+    }
+}
+
+function saveState() {
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ lastActivityId, lastWeeklySummaryDate }));
+}
+// ------------------------
+
 const TOKENS_DIR = path.join(__dirname, 'garmin_tokens');
 
 async function loginGarmin() {
@@ -82,10 +103,17 @@ async function init() {
         await loginGarmin();
         console.log("✓ Live connection established.");
         
+        // Load any previously saved state so we don't skip workouts on GitHub Actions restarts
+        loadState();
+        
         // Fetch the most recent item to set our baseline tracker
         const recent = await gcClient.getActivities(0, 1);
         if (recent && recent.length > 0) {
-            lastActivityId = recent[0].activityId;
+            // Only set baseline if we don't already have one from our saved state
+            if (!lastActivityId) {
+                lastActivityId = recent[0].activityId;
+                saveState();
+            }
             console.log(`⏱ System active. Monitoring your watch for activities newer than ID: ${lastActivityId}`);
         }
     } catch (err) {
@@ -150,6 +178,7 @@ async function checkNewWorkouts() {
         if (currentId !== lastActivityId) {
             console.log(`⚡ Fresh workout tracked! ID: ${currentId}. Gathering health metrics...`);
             lastActivityId = currentId;
+            saveState(); // Persist the new ID immediately
 
             const todayHealth = await fetchDailyHealth(new Date());
 
@@ -275,6 +304,7 @@ function checkScheduler() {
     if (now.getDay() === 1 && now.getHours() === 9 && now.getMinutes() < 10) {
         if (lastWeeklySummaryDate !== todayStr) {
             lastWeeklySummaryDate = todayStr;
+            saveState(); // Persist the new summary date immediately
             generateWeeklySummary();
         }
     }
