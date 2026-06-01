@@ -12,7 +12,6 @@ const db = new sqlite3.Database(DB_FILE);
 function initDb() {
     return new Promise((resolve, reject) => {
         db.serialize(() => {
-            // Enable foreign keys in SQLite
             db.run("PRAGMA foreign_keys = ON;");
 
             // 1. Users Table
@@ -80,7 +79,7 @@ function saveUser(chatId, email, rawPassword) {
                 garmin_email = excluded.garmin_email,
                 garmin_password = excluded.garmin_password
         `;
-        db.run(sql, [String(chatId), email, encryptedPassword], function(err) {
+        db.run(sql, [String(chatId), email, encryptedPassword], function (err) {
             if (err) reject(err);
             else {
                 // Ensure a preferences row also exists
@@ -102,7 +101,7 @@ function getUser(chatId) {
         db.get(sql, [String(chatId)], (err, row) => {
             if (err) return reject(err);
             if (!row) return resolve(null);
-            
+
             // Decrypt password on-the-fly
             const decryptedPassword = decrypt(row.garmin_password);
             resolve({
@@ -129,7 +128,7 @@ function getAllUsers() {
         `;
         db.all(sql, [], (err, rows) => {
             if (err) return reject(err);
-            
+
             const users = rows.map(row => ({
                 chatId: row.chat_id,
                 email: row.garmin_email,
@@ -167,7 +166,7 @@ function getUserPreferences(chatId) {
         db.get(sql, [String(chatId)], (err, row) => {
             if (err) return reject(err);
             if (!row) return resolve(null);
-            
+
             let routineDays = [];
             try {
                 if (row.routine_days) routineDays = JSON.parse(row.routine_days);
@@ -197,7 +196,7 @@ function saveUserPreferences(chatId, prefs = {}) {
     return new Promise((resolve, reject) => {
         const fields = [];
         const params = [];
-        
+
         const allowableKeys = {
             coachPersona: 'coach_persona',
             primaryGoal: 'primary_goal',
@@ -224,7 +223,7 @@ function saveUserPreferences(chatId, prefs = {}) {
 
         params.push(String(chatId));
         const sql = `UPDATE preferences SET ${fields.join(', ')} WHERE chat_id = ?`;
-        db.run(sql, params, function(err) {
+        db.run(sql, params, function (err) {
             if (err) reject(err);
             else resolve();
         });
@@ -237,7 +236,7 @@ function saveUserPreferences(chatId, prefs = {}) {
 function updateLastActivityId(chatId, activityId) {
     return new Promise((resolve, reject) => {
         const sql = `UPDATE users SET last_activity_id = ? WHERE chat_id = ?`;
-        db.run(sql, [activityId ? String(activityId) : null, String(chatId)], function(err) {
+        db.run(sql, [activityId ? String(activityId) : null, String(chatId)], function (err) {
             if (err) reject(err);
             else resolve();
         });
@@ -250,7 +249,7 @@ function updateLastActivityId(chatId, activityId) {
 function updateLastWeeklySummaryDate(chatId, dateStr) {
     return new Promise((resolve, reject) => {
         const sql = `UPDATE users SET last_weekly_summary_date = ? WHERE chat_id = ?`;
-        db.run(sql, [dateStr, String(chatId)], function(err) {
+        db.run(sql, [dateStr, String(chatId)], function (err) {
             if (err) reject(err);
             else resolve();
         });
@@ -269,7 +268,7 @@ function saveChatMessage(chatId, role, messageText) {
             VALUES (?, ?, ?, ?)
         `;
         const timestamp = new Date().toISOString();
-        db.run(sql, [String(chatId), role, messageText, timestamp], function(err) {
+        db.run(sql, [String(chatId), role, messageText, timestamp], function (err) {
             if (err) return reject(err);
 
             // Housekeeping: Capping history to the last 20 messages to keep the database tiny
@@ -305,13 +304,12 @@ function getChatHistory(chatId, limit = 10) {
         `;
         db.all(sql, [String(chatId), limit], (err, rows) => {
             if (err) return reject(err);
-            
-            // Map rows and reverse them to restore chronological order (oldest first)
+
             const history = rows.map(r => ({
                 role: r.role,
                 parts: [{ text: r.message_text }]
             })).reverse();
-            
+
             resolve(history);
         });
     });

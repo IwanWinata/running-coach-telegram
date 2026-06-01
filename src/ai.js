@@ -1,9 +1,8 @@
 const { GoogleGenAI } = require('@google/genai');
 const { PERSONAS, HISTORICAL_ANALYSIS_PROMPT, DAILY_FEEDBACK_PROMPT, COACH_REPLY_PROMPT, WEEKLY_SUMMARY_PROMPT } = require('./prompts');
 
-const aiClient = new GoogleGenAI({}); // Automatically grabs GEMINI_API_KEY from process.env
+const aiClient = new GoogleGenAI({});
 
-// --- Helper Functions ---
 function formatMinutes(seconds) {
     if (!seconds) return "0m";
     const totalMins = Math.floor(seconds / 60);
@@ -14,9 +13,6 @@ function formatMinutes(seconds) {
     return `${hrs}h`;
 }
 
-/**
- * Builds the compact Athlete Summary Card to feed Gemini during Q&A or daily sync
- */
 function buildAthleteCard(prefs, lastRuns = []) {
     const routine = prefs.routineDays && prefs.routineDays.length > 0
         ? prefs.routineDays.join(', ')
@@ -51,7 +47,6 @@ ${prefs.historicalProfile || 'Baseline analysis not yet compiled. Athlete is new
 }
 
 /**
- * Analyzes up to 50 runs to generate a 3-6 month routine baseline
  * @param {Array} runs - List of historical runs
  * @returns {Promise<string>} Gemini output baseline
  */
@@ -60,7 +55,6 @@ async function analyzeHistoricalRuns(runs = []) {
         return "Athlete has no logged running activities in their Garmin Connect history.";
     }
 
-    // Compile activities into a compact payload for the model
     const runsPayload = runs.slice(0, 45).map(r => ({
         date: r.startTimeLocal ? r.startTimeLocal.split(' ')[0] : 'N/A',
         distanceKm: (r.distance / 1000).toFixed(2),
@@ -70,7 +64,6 @@ async function analyzeHistoricalRuns(runs = []) {
         cadence: r.averageRunningCadence || 'N/A'
     }));
 
-    // Inject runs payload into template prompt
     const prompt = HISTORICAL_ANALYSIS_PROMPT.replace('{{runsPayload}}', JSON.stringify(runsPayload, null, 2));
 
     try {
@@ -87,13 +80,8 @@ async function analyzeHistoricalRuns(runs = []) {
     }
 }
 
-/**
- * Generates personalized daily run feedback and dynamic next session recommendations
- */
 async function generateDailyFeedback(latestWorkout, recoveryData, prefs) {
     const coachPersonaPrompt = PERSONAS[prefs.coachPersona] || PERSONAS.sports_scientist;
-
-    // Parse today's health metrics
     const todayHealth = {
         sleepScore: recoveryData?.sleepSummary?.score || "N/A",
         sleepDeep: recoveryData?.sleepSummary?.deep || "N/A",
@@ -131,7 +119,6 @@ async function generateDailyFeedback(latestWorkout, recoveryData, prefs) {
 
     const athleteCard = buildAthleteCard(prefs, [latestWorkout]);
 
-    // Inject persona and athlete metrics into template prompt
     const systemPrompt = DAILY_FEEDBACK_PROMPT
         .replace('{{coachPersonaPrompt}}', coachPersonaPrompt)
         .replace('{{athleteCard}}', athleteCard);
@@ -160,7 +147,6 @@ async function generateCoachReply(userQuery, prefs, recentRuns = [], chatHistory
     const coachPersonaPrompt = PERSONAS[prefs.coachPersona] || PERSONAS.sports_scientist;
     const athleteCard = buildAthleteCard(prefs, recentRuns);
 
-    // Inject template keys
     const systemPrompt = COACH_REPLY_PROMPT
         .replace('{{coachPersonaPrompt}}', coachPersonaPrompt)
         .replace('{{athleteCard}}', athleteCard);
@@ -205,7 +191,6 @@ async function generateWeeklySummary(weeklyRuns = [], healthHistory = [], prefs)
         sevenDayHealthHistory: healthHistory
     };
 
-    // Inject template keys
     const systemPrompt = WEEKLY_SUMMARY_PROMPT
         .replace('{{coachPersonaPrompt}}', coachPersonaPrompt)
         .replace('{{primaryGoal}}', prefs.primaryGoal || 'None set.')

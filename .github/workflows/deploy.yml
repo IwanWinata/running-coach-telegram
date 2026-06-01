@@ -1,0 +1,38 @@
+name: Deploy Garmin AI Coach to DigitalOcean Droplet
+
+on:
+  push:
+    branches:
+      - main  # Triggers the pipeline when you push to the main branch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Copy Files to Droplet via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          # Only copy code files, excluding databases and local credentials caches
+          source: "index.js,package.json,package-lock.json,src"
+          target: "/var/www/garmin-ai-coach"
+
+      - name: Install Dependencies & Restart PM2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            cd /var/www/garmin-ai-coach
+            # Install production dependencies
+            npm install --production
+            # Restart the PM2 daemon to apply updates
+            pm2 restart garmin-ai-coach

@@ -41,8 +41,7 @@ function initBot() {
     // 2. /register command
     bot.onText(/\/register(?:\s+(.+))?/, async (msg, match) => {
         const chatId = msg.chat.id;
-        
-        // Instantly delete credentials message to protect secure inputs
+
         try {
             await bot.deleteMessage(chatId, msg.message_id);
         } catch (e) {
@@ -51,7 +50,7 @@ function initBot() {
 
         const payload = match[1] ? match[1].trim() : '';
         const parts = payload.split(/\s+/);
-        
+
         if (parts.length < 2) {
             bot.sendMessage(chatId, messages.REGISTER_FORMAT_ERROR, { parse_mode: 'Markdown' });
             return;
@@ -63,10 +62,8 @@ function initBot() {
         const statusMsg = await bot.sendMessage(chatId, messages.REGISTER_PENDING, { parse_mode: 'Markdown' });
 
         try {
-            // Authenticate Garmin client to verify credentials
             await getGarminClient(chatId, email, password, bot);
-            
-            // Save user credentials to database
+
             await saveUser(chatId, email, password);
 
             await bot.editMessageText(messages.REGISTER_SUCCESS_MIGRATING, {
@@ -75,7 +72,6 @@ function initBot() {
                 parse_mode: 'Markdown'
             });
 
-            // Generate baseline
             const baseline = await performBaselineSync(chatId, email, password, bot);
             bot.sendMessage(chatId, messages.REGISTER_SUCCESS(baseline), { parse_mode: 'Markdown' });
 
@@ -117,7 +113,6 @@ function initBot() {
         });
     });
 
-    // Handle Callback Queries (Button Presses)
     bot.on('callback_query', async (query) => {
         const chatId = query.message.chat.id;
         const action = query.data;
@@ -202,7 +197,6 @@ function initBot() {
             return;
         }
 
-        // Parse day strings
         const daysMap = {
             mon: 'Monday', monday: 'Monday',
             tue: 'Tuesday', tues: 'Tuesday', tuesday: 'Tuesday',
@@ -249,7 +243,6 @@ function initBot() {
             return;
         }
 
-        // Verify timezone name
         try {
             new Intl.DateTimeFormat('en-US', { timeZone: tzInput });
             await saveUserPreferences(chatId, { timezone: tzInput });
@@ -296,13 +289,13 @@ function initBot() {
         }
 
         const prefs = await getUserPreferences(chatId);
-        
+
         let personaName = "Sports Scientist 🔬";
         if (prefs.coachPersona === 'drill_sergeant') personaName = "Drill Sergeant 🎖";
         if (prefs.coachPersona === 'cheerleader') personaName = "Empathetic Cheerleader 📣";
 
         const days = prefs.routineDays && prefs.routineDays.length > 0 ? prefs.routineDays.join(', ') : 'Flexible (No set days)';
-        
+
         const dashboard = messages.STATUS_DASHBOARD(user, prefs, personaName, days);
         bot.sendMessage(chatId, dashboard, { parse_mode: 'Markdown' });
     });
@@ -312,19 +305,16 @@ function initBot() {
         const chatId = msg.chat.id;
         const text = msg.text ? msg.text.trim() : '';
 
-        // Ignore commands
         if (text.startsWith('/') || !text) return;
 
-        // Check if user is registered
         const user = await getUser(chatId);
-        if (!user) return; // Silent if not registered
+        if (!user) return;
 
-        // Show bot typing action
         bot.sendChatAction(chatId, 'typing');
 
         try {
             const prefs = await getUserPreferences(chatId);
-            
+
             let recentRuns = [];
             try {
                 const client = await getGarminClient(chatId, user.email, user.password, bot);
