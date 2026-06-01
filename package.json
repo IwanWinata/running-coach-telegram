@@ -14,7 +14,8 @@
     "@google/genai": "^2.7.0",
     "@gooin/garmin-connect": "^1.8.1",
     "dotenv": "^17.4.2",
-    "node-telegram-bot-api": "^0.67.0"
+    "node-telegram-bot-api": "^0.67.0",
+    "sqlite3": "^6.0.1"
   },
   "overrides": {
     "axios-cookiejar-support": "5.0.5"
