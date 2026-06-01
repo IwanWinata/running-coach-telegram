@@ -147,7 +147,7 @@ I've analyzed your historical 3-6 month routine. Here is what I compiled:
 ${baseline}
 
 ---
-_Everything is ready! Feel free to customize your coach style with /coach, goals with /goals, or chat with me at any time!_`;
+Everything is ready! Feel free to customize your coach style with /coach, goals with /goals, or chat with me at any time!`;
 
 const HELP_MESSAGE = `🏃‍♂️🤖 *AI Coach - Help Manual*
 
