@@ -57,9 +57,9 @@ async function fetchDailyHealthForUser(client, dateObj) {
 /**
  * Syncs recent running history (last 3-6 months) to establish or refresh baseline coaching profile
  */
-async function performBaselineSync(chatId, email, password) {
+async function performBaselineSync(chatId, email, password, bot = null) {
     try {
-        const client = await getGarminClient(chatId, email, password);
+        const client = await getGarminClient(chatId, email, password, bot);
         const historyRuns = await fetchRunningHistory(client, 45); // Pull last 45 running activities
         
         if (historyRuns.length === 0) {
@@ -89,7 +89,7 @@ async function pollUserGarmin(bot, user) {
     console.log(`⏱ Polling Garmin Connect for user ${chatId} (${user.email})...`);
     
     try {
-        const client = await getGarminClient(chatId, user.email, user.password);
+        const client = await getGarminClient(chatId, user.email, user.password, bot);
         const activities = await client.getActivities(0, 1);
         if (!activities || activities.length === 0) return;
 
@@ -146,7 +146,7 @@ async function checkUserWeeklySummary(bot, user) {
             await updateLastWeeklySummaryDate(chatId, todayStr);
 
             try {
-                const client = await getGarminClient(chatId, user.email, user.password);
+                const client = await getGarminClient(chatId, user.email, user.password, bot);
                 const activities = await client.getActivities(0, 10);
                 
                 const yesterday = new Date();
