@@ -4,3 +4,4 @@ index.env
 *.env
 garmin_tokens/
 garmin_session.json
+coach.db
