@@ -64,7 +64,7 @@ function initBot() {
 
         try {
             // Authenticate Garmin client to verify credentials
-            await getGarminClient(chatId, email, password);
+            await getGarminClient(chatId, email, password, bot);
             
             // Save user credentials to database
             await saveUser(chatId, email, password);
@@ -76,7 +76,7 @@ function initBot() {
             });
 
             // Generate baseline
-            const baseline = await performBaselineSync(chatId, email, password);
+            const baseline = await performBaselineSync(chatId, email, password, bot);
             bot.sendMessage(chatId, messages.REGISTER_SUCCESS(baseline), { parse_mode: 'Markdown' });
 
         } catch (err) {
@@ -327,7 +327,7 @@ function initBot() {
             
             let recentRuns = [];
             try {
-                const client = await getGarminClient(chatId, user.email, user.password);
+                const client = await getGarminClient(chatId, user.email, user.password, bot);
                 recentRuns = await fetchRunningHistory(client, 3);
             } catch (e) {
                 console.warn(`⚠️ [Q&A User ${chatId}] Garmin context query bypassed:`, e.message);
