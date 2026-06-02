@@ -50,7 +50,7 @@ ${prefs.historicalProfile || 'Baseline analysis not yet compiled. Athlete is new
  * @param {Array} runs - List of historical runs
  * @returns {Promise<string>} Gemini output baseline
  */
-async function analyzeHistoricalRuns(runs = []) {
+async function analyzeHistoricalRuns(runs = [], modelName = 'gemini-2.5-flash') {
     if (runs.length === 0) {
         return "Athlete has no logged running activities in their Garmin Connect history.";
     }
@@ -67,9 +67,9 @@ async function analyzeHistoricalRuns(runs = []) {
     const prompt = HISTORICAL_ANALYSIS_PROMPT.replace('{{runsPayload}}', JSON.stringify(runsPayload, null, 2));
 
     try {
-        console.log("🤖 Asking Gemini to analyze historical running baseline...");
+        console.log(`🤖 Asking Gemini (${modelName}) to analyze historical running baseline...`);
         const response = await aiClient.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: modelName,
             contents: prompt
         });
 
@@ -124,9 +124,9 @@ async function generateDailyFeedback(latestWorkout, recoveryData, prefs) {
         .replace('{{athleteCard}}', athleteCard);
 
     try {
-        console.log(`🤖 Requesting dynamic daily run analysis for persona: ${prefs.coachPersona}...`);
+        console.log(`🤖 Requesting dynamic daily run analysis for persona: ${prefs.coachPersona} via model: ${prefs.modelName || 'gemini-2.5-flash'}...`);
         const response = await aiClient.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: prefs.modelName || 'gemini-2.5-flash',
             contents: `Here is the completed run summary to analyze:\n${JSON.stringify(runSummary, null, 2)}`,
             config: {
                 systemInstruction: systemPrompt
@@ -152,10 +152,10 @@ async function generateCoachReply(userQuery, prefs, recentRuns = [], chatHistory
         .replace('{{athleteCard}}', athleteCard);
 
     try {
-        console.log(`🤖 Generating conversational coach reply in persona: ${prefs.coachPersona}...`);
+        console.log(`🤖 Generating conversational coach reply in persona: ${prefs.coachPersona} via model: ${prefs.modelName || 'gemini-2.5-flash'}...`);
 
         const response = await aiClient.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: prefs.modelName || 'gemini-2.5-flash',
             contents: [
                 ...chatHistory,
                 { role: 'user', parts: [{ text: userQuery }] }
@@ -198,9 +198,9 @@ async function generateWeeklySummary(weeklyRuns = [], healthHistory = [], prefs)
         .replace('{{historicalProfile}}', prefs.historicalProfile || 'No baseline computed.');
 
     try {
-        console.log("🤖 Generating deep 7-day weekly training review via Gemini 2.5 Pro...");
+        console.log(`🤖 Generating deep 7-day weekly training review via model: ${prefs.modelName || 'gemini-2.5-flash'}...`);
         const response = await aiClient.models.generateContent({
-            model: 'gemini-2.5-flash',
+            model: prefs.modelName || 'gemini-2.5-flash',
             contents: `Analyze this 7-day training log:\n${JSON.stringify(weeklyPayload, null, 2)}`,
             config: {
                 systemInstruction: systemPrompt

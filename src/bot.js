@@ -113,6 +113,36 @@ function initBot() {
         });
     });
 
+    // 3.5. /model command - Choose Gemini AI Model
+    bot.onText(/\/model/, async (msg) => {
+        const chatId = msg.chat.id;
+        const user = await getUser(chatId);
+        if (!user) {
+            bot.sendMessage(chatId, messages.REGISTRATION_REQUIRED, { parse_mode: 'Markdown' });
+            return;
+        }
+
+        const options = {
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        { text: 'Gemini 3.5 Flash', callback_data: 'model_gemini-3.5-flash' },
+                        { text: 'Gemini 3.1 Flash Lite', callback_data: 'model_gemini-3.1-flash-lite' }
+                    ],
+                    [
+                        { text: 'Gemini 3 Flash Preview', callback_data: 'model_gemini-3-flash-preview' },
+                        { text: 'Gemini 2.5 Flash', callback_data: 'model_gemini-2.5-flash' }
+                    ]
+                ]
+            }
+        };
+
+        bot.sendMessage(chatId, messages.MODEL_SELECT_PROMPT, {
+            reply_markup: options.reply_markup,
+            parse_mode: 'Markdown'
+        });
+    });
+
     bot.on('callback_query', async (query) => {
         const chatId = query.message.chat.id;
         const action = query.data;
@@ -130,6 +160,20 @@ function initBot() {
 
             bot.answerCallbackQuery(query.id, { text: `Coach style set to: ${prettyName}!` });
             bot.sendMessage(chatId, messages.COACH_CONFIRM(prettyName), { parse_mode: 'Markdown' });
+        }
+
+        if (action.startsWith('model_')) {
+            const selectedModel = action.replace('model_', '');
+            await saveUserPreferences(chatId, { modelName: selectedModel });
+
+            let prettyName = "Gemini 2.5 Flash";
+            if (selectedModel === 'gemini-3.5-flash') prettyName = "Gemini 3.5 Flash";
+            if (selectedModel === 'gemini-3.1-flash-lite') prettyName = "Gemini 3.1 Flash Lite";
+            if (selectedModel === 'gemini-3-flash-preview') prettyName = "Gemini 3 Flash Preview";
+            if (selectedModel === 'gemini-2.5-flash') prettyName = "Gemini 2.5 Flash";
+
+            bot.answerCallbackQuery(query.id, { text: `Model set to: ${prettyName}!` });
+            bot.sendMessage(chatId, messages.MODEL_CONFIRM(prettyName), { parse_mode: 'Markdown' });
         }
     });
 

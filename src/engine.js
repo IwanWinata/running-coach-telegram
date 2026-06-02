@@ -66,7 +66,10 @@ async function performBaselineSync(chatId, email, password, bot = null) {
             return "No historical running data found. Start tracking runs on your Garmin watch!";
         }
 
-        const baseline = await analyzeHistoricalRuns(historyRuns);
+        const prefs = await getUserPreferences(chatId);
+        const modelName = prefs ? prefs.modelName : 'gemini-2.5-flash';
+
+        const baseline = await analyzeHistoricalRuns(historyRuns, modelName);
 
         await saveUserPreferences(chatId, {
             historicalProfile: baseline,

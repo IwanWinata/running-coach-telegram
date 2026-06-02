@@ -115,6 +115,7 @@ const STATUS_DASHBOARD = (user, prefs, personaName, days) => `📊 *YOUR ATHLETE
 
 👤 *Garmin Sync:* \`${user.email}\`
 🎓 *Coach Persona:* ${personaName}
+🤖 *AI Model:* \`${prefs.modelName || 'gemini-2.5-flash'}\`
 🎯 *Current Goal:* ${prefs.primaryGoal}
 📅 *Routine Schedule:* ${days}
 🌍 *Local Timezone:* \`${prefs.timezone}\`
@@ -122,7 +123,13 @@ const STATUS_DASHBOARD = (user, prefs, personaName, days) => `📊 *YOUR ATHLETE
 ⏱ *Last Activity ID:* \`${user.lastActivityId || 'None synced'}\`
 📅 *Last Baseline Update:* \`${prefs.historicalProfileUpdatedAt ? prefs.historicalProfileUpdatedAt.split('T')[0] : 'Never'}\`
 
-_Type /coach to switch personas, /goals to update targets, and /routine to adjust preferred training days._`;
+_Type /coach to switch personas, /model to switch models, /goals to update targets, and /routine to adjust preferred days._`;
+
+const MODEL_SELECT_PROMPT = `🤖 *Choose Gemini AI Model:*
+
+Select a model name to run your coaching analysis. If you face frequent 503 unavailable errors, we recommend switching to *Gemini 3.1 Flash Lite* which is highly stable on the Free Tier!`;
+
+const MODEL_CONFIRM = (modelPretty) => `✓ *AI Model Updated:* Set to **${modelPretty}**!`;
 
 const QA_ERROR = `⚠️ *Coach warning:* I experienced a brief memory error. Ask me again!`;
 
@@ -232,5 +239,7 @@ module.exports = {
     CHECK_RUN_SUCCESS,
     CHECK_RUN_ERROR,
     SESSION_CHECKING,
-    SESSION_STATUS
+    SESSION_STATUS,
+    MODEL_SELECT_PROMPT,
+    MODEL_CONFIRM
 };
