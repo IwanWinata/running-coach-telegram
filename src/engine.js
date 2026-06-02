@@ -25,11 +25,11 @@ function formatMinutes(seconds) {
  * Fetches sleep score, resting heart rate, and overnight HRV for a dynamic client
  */
 async function fetchDailyHealthForUser(client, dateObj) {
-    const dateStr = dateObj.toISOString().split('T')[0]; 
+    const dateStr = dateObj.toISOString().split('T')[0];
     try {
         const sleepData = await client.getSleepData(dateObj);
         const heartRateData = await client.getHeartRate(dateObj);
-        
+
         const sleepDTO = sleepData?.dailySleepDTO || {};
         const sleepSummary = {
             score: sleepDTO.sleepScore || "N/A",
@@ -40,7 +40,7 @@ async function fetchDailyHealthForUser(client, dateObj) {
         };
 
         const rhr = heartRateData?.restingHeartRate || "N/A";
-        const hrvOvernight = sleepData?.hrvOvernightStatus?.weeklyAverage || "N/A"; 
+        const hrvOvernight = sleepData?.hrvOvernightStatus?.weeklyAverage || "N/A";
 
         return { sleepSummary, rhr, hrvOvernight, dateStr };
     } catch (err) {
@@ -61,13 +61,13 @@ async function performBaselineSync(chatId, email, password, bot = null) {
     try {
         const client = await getGarminClient(chatId, email, password, bot);
         const historyRuns = await fetchRunningHistory(client, 45); // Pull last 45 running activities
-        
+
         if (historyRuns.length === 0) {
             return "No historical running data found. Start tracking runs on your Garmin watch!";
         }
 
         const baseline = await analyzeHistoricalRuns(historyRuns);
-        
+
         await saveUserPreferences(chatId, {
             historicalProfile: baseline,
             historicalProfileUpdatedAt: new Date().toISOString()
@@ -87,7 +87,7 @@ async function performBaselineSync(chatId, email, password, bot = null) {
 async function pollUserGarmin(bot, user) {
     const chatId = user.chatId;
     console.log(`⏱ Polling Garmin Connect for user ${chatId} (${user.email})...`);
-    
+
     try {
         const client = await getGarminClient(chatId, user.email, user.password, bot);
         const activities = await client.getActivities(0, 1);
@@ -99,14 +99,14 @@ async function pollUserGarmin(bot, user) {
         // Verify if workout is fresh
         if (String(currentId) !== String(user.lastActivityId)) {
             console.log(`⚡ Fresh workout tracked for user ${chatId}! ID: ${currentId}. Gathering metrics...`);
-            
+
             const todayHealth = await fetchDailyHealthForUser(client, new Date());
             const prefs = await getUserPreferences(chatId);
 
             const feedback = await generateDailyFeedback(latestWorkout, todayHealth, prefs);
-            
+
             await bot.sendMessage(chatId, messages.DAILY_FEEDBACK_HEADER(feedback), { parse_mode: 'Markdown' });
-            
+
             // Only lock the activity in the database AFTER successful dispatch to Telegram
             await updateLastActivityId(chatId, currentId);
             console.log(`📩 Post-workout breakdown dispatched to user ${chatId}!`);
@@ -124,7 +124,7 @@ async function checkUserWeeklySummary(bot, user) {
     const tz = user.timezone || 'Asia/Jakarta';
 
     const now = new Date();
-    
+
     let localTimeStr;
     try {
         localTimeStr = now.toLocaleString('en-US', { timeZone: tz });
@@ -134,7 +134,7 @@ async function checkUserWeeklySummary(bot, user) {
     }
 
     const localDate = new Date(localTimeStr);
-    const localDay = localDate.getDay(); 
+    const localDay = localDate.getDay();
     const localHour = localDate.getHours();
     const todayStr = localDate.toISOString().split('T')[0];
 
@@ -142,17 +142,17 @@ async function checkUserWeeklySummary(bot, user) {
     if (localDay === 1 && localHour >= 9) {
         if (user.lastWeeklySummaryDate !== todayStr) {
             console.log(`📊 Generating 7-day training summary for user ${chatId} in timezone ${tz}...`);
-            
+
             await updateLastWeeklySummaryDate(chatId, todayStr);
 
             try {
                 const client = await getGarminClient(chatId, user.email, user.password, bot);
                 const activities = await client.getActivities(0, 10);
-                
+
                 const yesterday = new Date();
-                yesterday.setDate(yesterday.getDate() - 1); 
+                yesterday.setDate(yesterday.getDate() - 1);
                 const oneWeekAgo = new Date();
-                oneWeekAgo.setDate(oneWeekAgo.getDate() - 7); 
+                oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
 
                 const weeklyRuns = activities.filter(act => {
                     const actDate = new Date(act.startTimeLocal);
@@ -164,7 +164,7 @@ async function checkUserWeeklySummary(bot, user) {
                 const healthHistory = [];
                 for (let i = 0; i < 7; i++) {
                     const targetDate = new Date();
-                    targetDate.setDate(targetDate.getDate() - (i + 1)); 
+                    targetDate.setDate(targetDate.getDate() - (i + 1));
                     const health = await fetchDailyHealthForUser(client, targetDate);
                     healthHistory.push(health);
                 }
@@ -241,11 +241,10 @@ async function handleAutoMigration(bot) {
             const existing = await getUser(legacyChatId);
             if (!existing) {
                 console.log(`📦 [Auto-Migration] No record found for chat ID ${legacyChatId}. Bootstrapping automatic user registration...`);
-                
+
                 await saveUser(legacyChatId, legacyEmail, legacyPassword);
                 console.log("✓ [Auto-Migration] Registered secure credentials in database successfully.");
 
-                // Trigger baseline sync in background
                 performBaselineSync(legacyChatId, legacyEmail, legacyPassword)
                     .then((baseline) => {
                         bot.sendMessage(legacyChatId, messages.AUTO_MIGRATION_SUCCESS(baseline), { parse_mode: 'Markdown' });
@@ -260,9 +259,44 @@ async function handleAutoMigration(bot) {
     }
 }
 
+/**
+ * Manually checks or forces a sync of the latest Garmin running activity for a single user
+ * @returns {Promise<object>} Status object detailing what occurred
+ */
+async function syncUserActivity(bot, user, force = false) {
+    const chatId = user.chatId;
+    const client = await getGarminClient(chatId, user.email, user.password, bot);
+    const activities = await client.getActivities(0, 1);
+    
+    if (!activities || activities.length === 0) {
+        return { success: false, reason: "No activities found in your Garmin history." };
+    }
+
+    const latestWorkout = activities[0];
+    const currentId = latestWorkout.activityId;
+    const isNew = String(currentId) !== String(user.lastActivityId);
+
+    if (isNew || force) {
+        const todayHealth = await fetchDailyHealthForUser(client, new Date());
+        const prefs = await getUserPreferences(chatId);
+
+        const feedback = await generateDailyFeedback(latestWorkout, todayHealth, prefs);
+        await bot.sendMessage(chatId, messages.DAILY_FEEDBACK_HEADER(feedback), { parse_mode: 'Markdown' });
+
+        // Update database only if it's indeed a new run
+        if (isNew) {
+            await updateLastActivityId(chatId, currentId);
+        }
+        return { success: true, isNew, activityId: currentId, name: latestWorkout.activityName };
+    }
+
+    return { success: false, isNew: false, activityId: currentId, name: latestWorkout.activityName };
+}
+
 module.exports = {
     performBaselineSync,
     runEngineCycle,
     handleAutoMigration,
+    syncUserActivity,
     formatMinutes
 };

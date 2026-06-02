@@ -12,7 +12,7 @@ const { generateCoachReply } = require('./ai');
 const messages = require('./messages');
 
 // --- Sync Engine Helper ---
-const { performBaselineSync } = require('./engine');
+const { performBaselineSync, syncUserActivity } = require('./engine');
 
 /**
  * Initializes and registers all Telegram command and message handlers
@@ -41,8 +41,7 @@ function initBot() {
     // 2. /register command
     bot.onText(/\/register(?:\s+(.+))?/, async (msg, match) => {
         const chatId = msg.chat.id;
-        
-        // Instantly delete credentials message to protect secure inputs
+
         try {
             await bot.deleteMessage(chatId, msg.message_id);
         } catch (e) {
@@ -51,7 +50,7 @@ function initBot() {
 
         const payload = match[1] ? match[1].trim() : '';
         const parts = payload.split(/\s+/);
-        
+
         if (parts.length < 2) {
             bot.sendMessage(chatId, messages.REGISTER_FORMAT_ERROR, { parse_mode: 'Markdown' });
             return;
@@ -63,10 +62,8 @@ function initBot() {
         const statusMsg = await bot.sendMessage(chatId, messages.REGISTER_PENDING, { parse_mode: 'Markdown' });
 
         try {
-            // Authenticate Garmin client to verify credentials
             await getGarminClient(chatId, email, password, bot);
-            
-            // Save user credentials to database
+
             await saveUser(chatId, email, password);
 
             await bot.editMessageText(messages.REGISTER_SUCCESS_MIGRATING, {
@@ -75,7 +72,6 @@ function initBot() {
                 parse_mode: 'Markdown'
             });
 
-            // Generate baseline
             const baseline = await performBaselineSync(chatId, email, password, bot);
             bot.sendMessage(chatId, messages.REGISTER_SUCCESS(baseline), { parse_mode: 'Markdown' });
 
@@ -117,7 +113,6 @@ function initBot() {
         });
     });
 
-    // Handle Callback Queries (Button Presses)
     bot.on('callback_query', async (query) => {
         const chatId = query.message.chat.id;
         const action = query.data;
@@ -202,7 +197,6 @@ function initBot() {
             return;
         }
 
-        // Parse day strings
         const daysMap = {
             mon: 'Monday', monday: 'Monday',
             tue: 'Tuesday', tues: 'Tuesday', tuesday: 'Tuesday',
@@ -249,7 +243,6 @@ function initBot() {
             return;
         }
 
-        // Verify timezone name
         try {
             new Intl.DateTimeFormat('en-US', { timeZone: tzInput });
             await saveUserPreferences(chatId, { timezone: tzInput });
@@ -296,15 +289,100 @@ function initBot() {
         }
 
         const prefs = await getUserPreferences(chatId);
-        
+
         let personaName = "Sports Scientist 🔬";
         if (prefs.coachPersona === 'drill_sergeant') personaName = "Drill Sergeant 🎖";
         if (prefs.coachPersona === 'cheerleader') personaName = "Empathetic Cheerleader 📣";
 
         const days = prefs.routineDays && prefs.routineDays.length > 0 ? prefs.routineDays.join(', ') : 'Flexible (No set days)';
-        
+
         const dashboard = messages.STATUS_DASHBOARD(user, prefs, personaName, days);
         bot.sendMessage(chatId, dashboard, { parse_mode: 'Markdown' });
+    });
+
+    // 8.1. /sync command - Manual running sync
+    bot.onText(/\/sync(?:\s+(.+))?/, async (msg, match) => {
+        const chatId = msg.chat.id;
+        const user = await getUser(chatId);
+        if (!user) {
+            bot.sendMessage(chatId, messages.REGISTRATION_REQUIRED, { parse_mode: 'Markdown' });
+            return;
+        }
+
+        const forceArg = match[1] ? match[1].trim().toLowerCase() : '';
+        const force = (forceArg === 'force');
+
+        const statusMsg = await bot.sendMessage(chatId, messages.CHECK_RUN_PENDING, { parse_mode: 'Markdown' });
+
+        try {
+            const result = await syncUserActivity(bot, user, force);
+            if (result.success) {
+                bot.editMessageText(messages.CHECK_RUN_SUCCESS(result.activityId), {
+                    chat_id: chatId,
+                    message_id: statusMsg.message_id,
+                    parse_mode: 'Markdown'
+                });
+            } else {
+                bot.editMessageText(messages.CHECK_RUN_NO_NEW(result.activityId, result.name), {
+                    chat_id: chatId,
+                    message_id: statusMsg.message_id,
+                    parse_mode: 'Markdown'
+                });
+            }
+        } catch (err) {
+            console.error(`❌ Manual sync failed for user ${chatId}:`, err.message);
+            bot.editMessageText(messages.CHECK_RUN_ERROR(err.message), {
+                chat_id: chatId,
+                message_id: statusMsg.message_id,
+                parse_mode: 'Markdown'
+            });
+        }
+    });
+
+    // 8.2. /session command - Check Garmin session status
+    bot.onText(/\/session/, async (msg) => {
+        const chatId = msg.chat.id;
+        const user = await getUser(chatId);
+        if (!user) {
+            bot.sendMessage(chatId, messages.REGISTRATION_REQUIRED, { parse_mode: 'Markdown' });
+            return;
+        }
+
+        const statusMsg = await bot.sendMessage(chatId, messages.SESSION_CHECKING, { parse_mode: 'Markdown' });
+
+        try {
+            const client = await getGarminClient(chatId, user.email, user.password, bot);
+            const activities = await client.getActivities(0, 1);
+            let details = `• Connect Status: Connection is active and secure.\n• Current tokens saved locally.\n`;
+            if (activities && activities.length > 0) {
+                details += `• Connection sanity check passed (retrieved latest activity: *${activities[0].activityName}*).`;
+            } else {
+                details += `• Connection sanity check passed (no activities in account).`;
+            }
+
+            bot.editMessageText(messages.SESSION_STATUS(user.email, true, details), {
+                chat_id: chatId,
+                message_id: statusMsg.message_id,
+                parse_mode: 'Markdown'
+            });
+        } catch (err) {
+            console.error(`❌ Session health check failed for user ${chatId}:`, err.message);
+            
+            let details = `• Error details: \`${err.message}\`\n`;
+            if (err.message.includes('MFA')) {
+                details += `💡 Action required: Type \`/register your_email your_password\` to re-auth and enter your MFA code.`;
+            } else if (err.message.includes('Rate limited') || err.message.includes('429')) {
+                details += `💡 Garmin is rate-limiting your droplet's IP address. Please wait 15 minutes before retrying, or upload your local session tokens folder using SCP.`;
+            } else {
+                details += `💡 Please check your credentials or run \`/register\` again to refresh session.`;
+            }
+
+            bot.editMessageText(messages.SESSION_STATUS(user.email, false, details), {
+                chat_id: chatId,
+                message_id: statusMsg.message_id,
+                parse_mode: 'Markdown'
+            });
+        }
     });
 
     // --- Conversational Interactive Q&A Handler ---
@@ -312,19 +390,16 @@ function initBot() {
         const chatId = msg.chat.id;
         const text = msg.text ? msg.text.trim() : '';
 
-        // Ignore commands
         if (text.startsWith('/') || !text) return;
 
-        // Check if user is registered
         const user = await getUser(chatId);
-        if (!user) return; // Silent if not registered
+        if (!user) return;
 
-        // Show bot typing action
         bot.sendChatAction(chatId, 'typing');
 
         try {
             const prefs = await getUserPreferences(chatId);
-            
+
             let recentRuns = [];
             try {
                 const client = await getGarminClient(chatId, user.email, user.password, bot);

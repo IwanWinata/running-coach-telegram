@@ -157,6 +157,8 @@ Here is the list of all available commands you can use:
 • \`/start\` - Overview and onboarding walkthrough
 • \`/register [email] [password]\` - Securely link your Garmin account (credentials are instantly deleted from chat history)
 • \`/status\` - View your athlete dashboard, goals, routine, and sync status
+• \`/sync\` - Manually check for new Garmin runs (use \`/sync force\` to re-analyze latest run)
+• \`/session\` - Check connection status and health of your Garmin session
 
 ⚙️ *Coach Settings:*
 • \`/coach\` - Toggle your coach persona (Sports Scientist, Drill Sergeant, or Cheerleader)
@@ -170,6 +172,29 @@ Here is the list of all available commands you can use:
 
 💬 *Interactive Coaching:*
 • Just send any normal text message in this chat! Ask questions about tight muscles, pace plans, recovery, or rescheduling, and I will reply as your personal coach.`;
+
+const CHECK_RUN_PENDING = `🔍 *Checking Garmin for new activities...* Please wait.`;
+
+const CHECK_RUN_NO_NEW = (activityId, name) => `No new activities found since your last sync.
+
+• Latest activity in your Garmin: *${name}* (ID: \`${activityId}\`)
+
+💡 If you want to force-analyze this activity again, type:
+\`/sync force\``;
+
+const CHECK_RUN_SUCCESS = (activityId) => `✓ *Sync complete!* Dynamic feedback generated for activity ID: \`${activityId}\`.`;
+
+const CHECK_RUN_ERROR = (err) => `❌ *Sync error:* ${err}`;
+
+const SESSION_CHECKING = `🔍 *Checking your Garmin Connect session health...* Please wait.`;
+
+const SESSION_STATUS = (email, active, details) => `🔑 *GARMIN SESSION STATUS* 🔑
+
+👤 *User Account:* \`${email}\`
+🟢 *Status:* ${active ? '*ONLINE / ACTIVE* ✅' : '*OFFLINE / ERROR* ❌'}
+
+ℹ️ *Details:*
+${details}`;
 
 module.exports = {
     START_MESSAGE,
@@ -201,6 +226,11 @@ module.exports = {
     WEEKLY_SUMMARY_HEADER,
     AUTO_REFRESH_NOTIFICATION,
     AUTO_MIGRATION_SUCCESS,
-    HELP_MESSAGE
+    HELP_MESSAGE,
+    CHECK_RUN_PENDING,
+    CHECK_RUN_NO_NEW,
+    CHECK_RUN_SUCCESS,
+    CHECK_RUN_ERROR,
+    SESSION_CHECKING,
+    SESSION_STATUS
 };
-
