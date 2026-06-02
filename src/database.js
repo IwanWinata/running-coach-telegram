@@ -37,9 +37,15 @@ function initDb() {
                     timezone TEXT DEFAULT 'Asia/Jakarta',
                     historical_profile TEXT,
                     historical_profile_updated_at TEXT,
+                    model_name TEXT DEFAULT 'gemini-2.5-flash',
                     FOREIGN KEY (chat_id) REFERENCES users(chat_id) ON DELETE CASCADE
                 )
-            `);
+            `, () => {
+                // Safe migration: Add model_name column to existing database if missing
+                db.run("ALTER TABLE preferences ADD COLUMN model_name TEXT DEFAULT 'gemini-2.5-flash';", (err) => {
+                    // Safe to ignore if column already exists
+                });
+            });
 
             // 3. Conversational Chat History Table
             db.run(`
@@ -122,7 +128,7 @@ function getAllUsers() {
     return new Promise((resolve, reject) => {
         const sql = `
             SELECT u.chat_id, u.garmin_email, u.garmin_password, u.last_activity_id, u.last_weekly_summary_date,
-                   p.timezone, p.historical_profile_updated_at, p.coach_persona
+                   p.timezone, p.historical_profile_updated_at, p.coach_persona, p.model_name
             FROM users u
             LEFT JOIN preferences p ON u.chat_id = p.chat_id
         `;
@@ -137,7 +143,8 @@ function getAllUsers() {
                 lastWeeklySummaryDate: row.last_weekly_summary_date,
                 timezone: row.timezone || 'Asia/Jakarta',
                 historicalProfileUpdatedAt: row.historical_profile_updated_at,
-                coachPersona: row.coach_persona || 'sports_scientist'
+                coachPersona: row.coach_persona || 'sports_scientist',
+                modelName: row.model_name || 'gemini-2.5-flash'
             }));
             resolve(users);
         });
@@ -183,7 +190,8 @@ function getUserPreferences(chatId) {
                 units: row.units || 'metric',
                 timezone: row.timezone || 'Asia/Jakarta',
                 historicalProfile: row.historical_profile || null,
-                historicalProfileUpdatedAt: row.historical_profile_updated_at || null
+                historicalProfileUpdatedAt: row.historical_profile_updated_at || null,
+                modelName: row.model_name || 'gemini-2.5-flash'
             });
         });
     });
@@ -205,7 +213,8 @@ function saveUserPreferences(chatId, prefs = {}) {
             units: 'units',
             timezone: 'timezone',
             historicalProfile: 'historical_profile',
-            historicalProfileUpdatedAt: 'historical_profile_updated_at'
+            historicalProfileUpdatedAt: 'historical_profile_updated_at',
+            modelName: 'model_name'
         };
 
         for (const [key, dbColumn] of Object.entries(allowableKeys)) {
