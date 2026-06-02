@@ -259,9 +259,44 @@ async function handleAutoMigration(bot) {
     }
 }
 
+/**
+ * Manually checks or forces a sync of the latest Garmin running activity for a single user
+ * @returns {Promise<object>} Status object detailing what occurred
+ */
+async function syncUserActivity(bot, user, force = false) {
+    const chatId = user.chatId;
+    const client = await getGarminClient(chatId, user.email, user.password, bot);
+    const activities = await client.getActivities(0, 1);
+    
+    if (!activities || activities.length === 0) {
+        return { success: false, reason: "No activities found in your Garmin history." };
+    }
+
+    const latestWorkout = activities[0];
+    const currentId = latestWorkout.activityId;
+    const isNew = String(currentId) !== String(user.lastActivityId);
+
+    if (isNew || force) {
+        const todayHealth = await fetchDailyHealthForUser(client, new Date());
+        const prefs = await getUserPreferences(chatId);
+
+        const feedback = await generateDailyFeedback(latestWorkout, todayHealth, prefs);
+        await bot.sendMessage(chatId, messages.DAILY_FEEDBACK_HEADER(feedback), { parse_mode: 'Markdown' });
+
+        // Update database only if it's indeed a new run
+        if (isNew) {
+            await updateLastActivityId(chatId, currentId);
+        }
+        return { success: true, isNew, activityId: currentId, name: latestWorkout.activityName };
+    }
+
+    return { success: false, isNew: false, activityId: currentId, name: latestWorkout.activityName };
+}
+
 module.exports = {
     performBaselineSync,
     runEngineCycle,
     handleAutoMigration,
+    syncUserActivity,
     formatMinutes
 };
