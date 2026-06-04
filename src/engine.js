@@ -22,6 +22,26 @@ function formatMinutes(seconds) {
 }
 
 /**
+ * Safe conversion of local workout timestamp to UTC date object pointing to noon,
+ * preventing timezone-shift / day-boundary overlaps.
+ */
+function getWorkoutDate(latestWorkout) {
+    if (latestWorkout && latestWorkout.startTimeLocal) {
+        const dateStr = latestWorkout.startTimeLocal.split(' ')[0]; // "YYYY-MM-DD"
+        const parts = dateStr.split('-');
+        if (parts.length === 3) {
+            return new Date(Date.UTC(
+                parseInt(parts[0], 10),
+                parseInt(parts[1], 10) - 1,
+                parseInt(parts[2], 10),
+                12, 0, 0
+            ));
+        }
+    }
+    return new Date();
+}
+
+/**
  * Fetches sleep score, resting heart rate, and overnight HRV for a dynamic client
  */
 async function fetchDailyHealthForUser(client, dateObj) {
@@ -39,8 +59,16 @@ async function fetchDailyHealthForUser(client, dateObj) {
             awake: formatMinutes(sleepDTO.awakeSleepSeconds)
         };
 
-        const rhr = heartRateData?.restingHeartRate || "N/A";
-        const hrvOvernight = sleepData?.hrvOvernightStatus?.weeklyAverage || "N/A";
+        const rhr = sleepData?.restingHeartRate || heartRateData?.restingHeartRate || "N/A";
+        
+        let hrvOvernight = "N/A";
+        if (sleepData) {
+            const hrvVal = sleepData.avgOvernightHrv;
+            const hrvStatus = sleepData.hrvStatus;
+            if (hrvVal !== undefined && hrvVal !== null) {
+                hrvOvernight = hrvStatus ? `${hrvVal} ms (${hrvStatus})` : `${hrvVal} ms`;
+            }
+        }
 
         return { sleepSummary, rhr, hrvOvernight, dateStr };
     } catch (err) {
@@ -103,7 +131,7 @@ async function pollUserGarmin(bot, user) {
         if (String(currentId) !== String(user.lastActivityId)) {
             console.log(`⚡ Fresh workout tracked for user ${chatId}! ID: ${currentId}. Gathering metrics...`);
 
-            const todayHealth = await fetchDailyHealthForUser(client, new Date());
+            const todayHealth = await fetchDailyHealthForUser(client, getWorkoutDate(latestWorkout));
             const prefs = await getUserPreferences(chatId);
 
             const feedback = await generateDailyFeedback(latestWorkout, todayHealth, prefs);
@@ -280,7 +308,7 @@ async function syncUserActivity(bot, user, force = false) {
     const isNew = String(currentId) !== String(user.lastActivityId);
 
     if (isNew || force) {
-        const todayHealth = await fetchDailyHealthForUser(client, new Date());
+        const todayHealth = await fetchDailyHealthForUser(client, getWorkoutDate(latestWorkout));
         const prefs = await getUserPreferences(chatId);
 
         const feedback = await generateDailyFeedback(latestWorkout, todayHealth, prefs);

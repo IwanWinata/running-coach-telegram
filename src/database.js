@@ -38,11 +38,16 @@ function initDb() {
                     historical_profile TEXT,
                     historical_profile_updated_at TEXT,
                     model_name TEXT DEFAULT 'gemini-2.5-flash',
+                    lthr INTEGER,
                     FOREIGN KEY (chat_id) REFERENCES users(chat_id) ON DELETE CASCADE
                 )
             `, () => {
                 // Safe migration: Add model_name column to existing database if missing
                 db.run("ALTER TABLE preferences ADD COLUMN model_name TEXT DEFAULT 'gemini-2.5-flash';", (err) => {
+                    // Safe to ignore if column already exists
+                });
+                // Safe migration: Add lthr column to existing database if missing
+                db.run("ALTER TABLE preferences ADD COLUMN lthr INTEGER;", (err) => {
                     // Safe to ignore if column already exists
                 });
             });
@@ -191,7 +196,8 @@ function getUserPreferences(chatId) {
                 timezone: row.timezone || 'Asia/Jakarta',
                 historicalProfile: row.historical_profile || null,
                 historicalProfileUpdatedAt: row.historical_profile_updated_at || null,
-                modelName: row.model_name || 'gemini-2.5-flash'
+                modelName: row.model_name || 'gemini-2.5-flash',
+                lthr: row.lthr || null
             });
         });
     });
@@ -214,7 +220,8 @@ function saveUserPreferences(chatId, prefs = {}) {
             timezone: 'timezone',
             historicalProfile: 'historical_profile',
             historicalProfileUpdatedAt: 'historical_profile_updated_at',
-            modelName: 'model_name'
+            modelName: 'model_name',
+            lthr: 'lthr'
         };
 
         for (const [key, dbColumn] of Object.entries(allowableKeys)) {
