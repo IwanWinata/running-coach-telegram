@@ -18,24 +18,55 @@ function buildAthleteCard(prefs, lastRuns = []) {
         ? prefs.routineDays.join(', ')
         : 'Flexible (No set days)';
 
+    const isMetric = prefs.units !== 'imperial';
+    const distFactor = isMetric ? 1000 : 1609.34;
+    const unitLabel = isMetric ? 'km' : 'mi';
+    const paceFactor = isMetric ? 1 : 1.60934;
+
     let runsText = 'None tracked yet.';
     if (lastRuns.length > 0) {
         runsText = lastRuns.map((r, i) => {
             const date = r.startTimeLocal ? r.startTimeLocal.split(' ')[0] : 'N/A';
-            const dist = (r.distance / 1000).toFixed(2);
+            const dist = (r.distance / distFactor).toFixed(2);
             const dur = (r.duration / 60).toFixed(2);
-            const pace = r.averagePace ? (r.averagePace * 16.6667).toFixed(2) : 'N/A';
+            
+            let pace = 'N/A';
+            if (r.averageSpeed) {
+                const paceMinKm = 16.6667 / r.averageSpeed;
+                pace = (paceMinKm * paceFactor).toFixed(2);
+            }
+            
             const hr = r.averageHR || 'N/A';
-            return `${i + 1}. ${date}: ${dist}km in ${dur}m (Pace: ${pace} min/km, HR: ${hr} bpm)`;
+            return `${i + 1}. ${date}: ${dist}${unitLabel} in ${dur}m (Pace: ${pace} min/${unitLabel}, HR: ${hr} bpm)`;
         }).join('\n  ');
+    }
+
+    let hrZonesText = 'Not configured. (Use /lthr command to set your Lactate Threshold HR)';
+    if (prefs.lthr) {
+        const z2Min = Math.round(prefs.lthr * 0.85);
+        const z2Max = Math.round(prefs.lthr * 0.89);
+        const z3Min = Math.round(prefs.lthr * 0.90);
+        const z3Max = Math.round(prefs.lthr * 0.94);
+        const z4Min = Math.round(prefs.lthr * 0.95);
+        const z4Max = Math.round(prefs.lthr * 0.99);
+        const z5Min = Math.round(prefs.lthr);
+
+        hrZonesText = `LTHR: ${prefs.lthr} bpm
+  - Zone 1 (Recovery): < ${z2Min} bpm
+  - Zone 2 (Aerobic / Base): ${z2Min} - ${z2Max} bpm
+  - Zone 3 (Tempo): ${z3Min} - ${z3Max} bpm
+  - Zone 4 (Sub-Threshold): ${z4Min} - ${z4Max} bpm
+  - Zone 5 (Anaerobic): >= ${z5Min} bpm`;
     }
 
     return `
 === ATHLETE CURRENT PROFILE CARD ===
 Primary Training Goal: ${prefs.primaryGoal || 'None set yet.'}
-Weekly Target Mileage: ${prefs.weeklyMileageTarget || 0} ${prefs.units === 'metric' ? 'km' : 'miles'}
+Weekly Target Mileage: ${prefs.weeklyMileageTarget || 0} ${unitLabel}
 Preferred Training Days (Routine): ${routine}
 Current Preference Unit: ${prefs.units || 'metric'}
+Lactate Threshold & HR Zones:
+  ${hrZonesText}
 
 --- HISTORICAL 3-6 MONTH ROUTINE BASELINE ---
 ${prefs.historicalProfile || 'Baseline analysis not yet compiled. Athlete is new.'}
@@ -60,8 +91,8 @@ async function analyzeHistoricalRuns(runs = [], modelName = 'gemini-2.5-flash') 
         distanceKm: (r.distance / 1000).toFixed(2),
         durationMins: (r.duration / 60).toFixed(2),
         avgHR: r.averageHR || 'N/A',
-        avgPace: r.averagePace ? (r.averagePace * 16.6667).toFixed(2) : 'N/A',
-        cadence: r.averageRunningCadence || 'N/A'
+        avgPace: r.averageSpeed ? (16.6667 / r.averageSpeed).toFixed(2) : 'N/A',
+        cadence: r.averageRunningCadenceInStepsPerMinute || r.averageRunningCadence || 'N/A'
     }));
 
     const prompt = HISTORICAL_ANALYSIS_PROMPT.replace('{{runsPayload}}', JSON.stringify(runsPayload, null, 2));
@@ -96,11 +127,12 @@ async function generateDailyFeedback(latestWorkout, recoveryData, prefs) {
     const distFactor = isMetric ? 1000 : 1609.34;
     const unitLabel = isMetric ? 'km' : 'mi';
     const paceLabel = isMetric ? 'min/km' : 'min/mi';
+    const paceFactor = isMetric ? 1 : 1.60934;
 
     let paceMinPerUnit = "N/A";
-    if (latestWorkout.averagePace) {
-        const paceMinKm = latestWorkout.averagePace * 16.6667;
-        paceMinPerUnit = isMetric ? paceMinKm.toFixed(2) : (paceMinKm * 1.60934).toFixed(2);
+    if (latestWorkout.averageSpeed) {
+        const paceMinKm = 16.6667 / latestWorkout.averageSpeed;
+        paceMinPerUnit = (paceMinKm * paceFactor).toFixed(2);
     }
 
     const runSummary = {
@@ -111,8 +143,8 @@ async function generateDailyFeedback(latestWorkout, recoveryData, prefs) {
         avgHR: latestWorkout.averageHR || "N/A",
         maxHR: latestWorkout.maxHR || "N/A",
         calories: latestWorkout.calories || "N/A",
-        cadence: latestWorkout.averageRunningCadence || "N/A",
-        strideLength: latestWorkout.strideLength ? (latestWorkout.strideLength / 100).toFixed(2) + "m" : "N/A",
+        cadence: latestWorkout.averageRunningCadenceInStepsPerMinute || latestWorkout.averageRunningCadence || "N/A",
+        strideLength: latestWorkout.avgStrideLength ? (latestWorkout.avgStrideLength / 100).toFixed(2) + "m" : "N/A",
         pace: paceMinPerUnit + ` ${paceLabel}`,
         recoveryMetrics: todayHealth
     };
@@ -186,7 +218,7 @@ async function generateWeeklySummary(weeklyRuns = [], healthHistory = [], prefs)
             distanceKm: (run.distance / 1000).toFixed(2),
             durationMins: (run.duration / 60).toFixed(2),
             avgHR: run.averageHR || "N/A",
-            cadence: run.averageRunningCadence || "N/A"
+            cadence: run.averageRunningCadenceInStepsPerMinute || run.averageRunningCadence || "N/A"
         })),
         sevenDayHealthHistory: healthHistory
     };
