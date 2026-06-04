@@ -224,6 +224,32 @@ function initBot() {
         bot.sendMessage(chatId, messages.MILEAGE_SUCCESS(mileage.toFixed(1), prefs.units), { parse_mode: 'Markdown' });
     });
 
+    // 4.6. /lthr command
+    bot.onText(/\/lthr(?:\s+(.+))?/, async (msg, match) => {
+        const chatId = msg.chat.id;
+        const user = await getUser(chatId);
+        if (!user) {
+            bot.sendMessage(chatId, messages.REGISTRATION_REQUIRED, { parse_mode: 'Markdown' });
+            return;
+        }
+
+        const lthrInput = match[1] ? match[1].trim() : '';
+        if (!lthrInput) {
+            const prefs = await getUserPreferences(chatId);
+            bot.sendMessage(chatId, messages.LTHR_HELP(prefs.lthr), { parse_mode: 'Markdown' });
+            return;
+        }
+
+        const lthr = parseInt(lthrInput, 10);
+        if (isNaN(lthr) || lthr < 50 || lthr > 250) {
+            bot.sendMessage(chatId, messages.LTHR_ERROR, { parse_mode: 'Markdown' });
+            return;
+        }
+
+        await saveUserPreferences(chatId, { lthr: lthr });
+        bot.sendMessage(chatId, messages.LTHR_SUCCESS(lthr), { parse_mode: 'Markdown' });
+    });
+
     // 5. /routine command
     bot.onText(/\/routine(?:\s+(.+))?/, async (msg, match) => {
         const chatId = msg.chat.id;

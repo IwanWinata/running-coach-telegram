@@ -111,11 +111,31 @@ Below is my updated analysis of your recent fitness and habits:\n\n${baseline}`;
 
 const REFRESH_ERROR = (errMsg) => `❌ *Failed to refresh baseline:* ${errMsg}`;
 
-const STATUS_DASHBOARD = (user, prefs, personaName, days) => `📊 *YOUR ATHLETE DASHBOARD* 📊
+const STATUS_DASHBOARD = (user, prefs, personaName, days) => {
+    let zonesMsg = '\\-';
+    if (prefs.lthr) {
+        const z2Min = Math.round(prefs.lthr * 0.85);
+        const z2Max = Math.round(prefs.lthr * 0.89);
+        const z3Min = Math.round(prefs.lthr * 0.90);
+        const z3Max = Math.round(prefs.lthr * 0.94);
+        const z4Min = Math.round(prefs.lthr * 0.95);
+        const z4Max = Math.round(prefs.lthr * 0.99);
+        const z5Min = Math.round(prefs.lthr);
+
+        zonesMsg = `\`${prefs.lthr} bpm\`
+   • Zone 1 (Recovery): < ${z2Min} bpm
+   • Zone 2 (Aerobic / Base): ${z2Min} - ${z2Max} bpm
+   • Zone 3 (Tempo): ${z3Min} - ${z3Max} bpm
+   • Zone 4 (Sub-Threshold): ${z4Min} - ${z4Max} bpm
+   • Zone 5 (Anaerobic): >= ${z5Min} bpm`;
+    }
+
+    return `📊 *YOUR ATHLETE DASHBOARD* 📊
 
 👤 *Garmin Sync:* \`${user.email}\`
 🎓 *Coach Persona:* ${personaName}
 🤖 *AI Model:* \`${prefs.modelName || 'gemini-2.5-flash'}\`
+💓 *Lactate Threshold (LTHR):* ${zonesMsg}
 🎯 *Current Goal:* ${prefs.primaryGoal}
 📅 *Routine Schedule:* ${days}
 🌍 *Local Timezone:* \`${prefs.timezone}\`
@@ -123,7 +143,22 @@ const STATUS_DASHBOARD = (user, prefs, personaName, days) => `📊 *YOUR ATHLETE
 ⏱ *Last Activity ID:* \`${user.lastActivityId || 'None synced'}\`
 📅 *Last Baseline Update:* \`${prefs.historicalProfileUpdatedAt ? prefs.historicalProfileUpdatedAt.split('T')[0] : 'Never'}\`
 
-_Type /coach to switch personas, /model to switch models, /goals to update targets, and /routine to adjust preferred days._`;
+_Type /coach to switch personas, /model to switch models, /goals to update targets, /lthr to set threshold, and /routine to adjust preferred days._`;
+};
+
+const LTHR_HELP = (currentLthr) => `💓 *Lactate Threshold HR (LTHR) Configuration* 💓
+
+Your Lactate Threshold HR (LTHR) represents the maximum intensity you can sustain for about 40–60 minutes. Setting this lets the AI coach customize your training heart rate zones!
+
+• Current LTHR: ${currentLthr ? `*${currentLthr} bpm*` : `_Not configured_`}
+
+To set your LTHR, type:
+\`/lthr [beats per minute]\`
+Example: \`/lthr 188\``;
+
+const LTHR_SUCCESS = (lthr) => `✓ *Lactate Threshold HR Set:* Set to **${lthr} bpm**! Under the hood, I've calculated and aligned your heart rate training zones (Zone 1 to Zone 5) to this baseline.`;
+
+const LTHR_ERROR = `❌ *Invalid LTHR.* Please specify a valid integer heart rate between **50 and 250 bpm** (e.g., \`/lthr 188\`).`;
 
 const MODEL_SELECT_PROMPT = `🤖 *Choose Gemini AI Model:*
 
@@ -173,6 +208,7 @@ Here is the list of all available commands you can use:
 • \`/mileage [number]\` - Set/update your weekly target mileage (e.g. 35)
 • \`/routine [Tue, Thu, Sat]\` - Configure your preferred running days
 • \`/timezone [Region/City]\` - Adjust your timezone for Monday 9 AM summaries
+• \`/lthr [bpm]\` - Set your Lactate Threshold Heart Rate (e.g. 188) to customize training HR zones
 
 🔄 *Profile Maintenance:*
 • \`/refresh_profile\` - Force-recalculate your 3-6 month routine baseline profile
@@ -241,5 +277,8 @@ module.exports = {
     SESSION_CHECKING,
     SESSION_STATUS,
     MODEL_SELECT_PROMPT,
-    MODEL_CONFIRM
+    MODEL_CONFIRM,
+    LTHR_HELP,
+    LTHR_SUCCESS,
+    LTHR_ERROR
 };
